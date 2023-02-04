@@ -1,0 +1,227 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
+#include <sys/stat.h>  
+#include <sys/types.h>
+#include <fcntl.h>
+
+
+#define NORMAL 0
+#define NEWLINE 1
+#define NULLBYTE 2
+
+char *get_token(char **ptr, int* status) {
+  char *tok = (char*) malloc(80);
+  char *del = *ptr;
+  char *lines;
+  int i = 0;
+  while (isspace(**ptr)) {
+    if (**ptr == '\n') {
+      *status = NEWLINE;
+      (*ptr)++;
+      lines = (char*)malloc(80);
+      for (i; (*ptr)[i] != '\0'; i++) {
+        lines[i] = (*ptr)[i];
+      }
+      lines[i] = '\0';
+      free(del);
+      (*ptr) = lines;
+      return NULL;
+    }
+    (*ptr)++;
+  }
+  if (*ptr[0] == '\0') {
+    (*ptr)++;
+    lines = (char*)malloc(80);
+    lines[0] = '\0';
+    free(del);
+    (*ptr) = lines;
+    *status = NULLBYTE;
+    return NULL;
+  } else {
+    int j = 0;
+    while (!isspace(**ptr)) {
+      tok[j] = **ptr;
+      (*ptr)++;
+      j++;
+    }
+    tok[j] = 0;
+    *status = NORMAL;
+    lines = (char*)malloc(80);
+    for (i; (*ptr)[i] != '\0'; i++) {
+      lines[i] = (*ptr)[i];
+    }
+    lines[i] = '\0';
+    free(del);
+    (*ptr) = lines;
+    return tok;
+  }   
+}
+
+char *concat(const char *a, const char *b) {
+  int i, j, k = 0;
+  char *temp = (char*) malloc(150);
+
+  for(i=0; a[i] != 0; i++) {
+    temp[k] = a[i];
+    k++;
+  }
+
+  for(j=0; b[j] != 0; j++) {
+    temp[k] = b[j];
+    k++;
+  }
+
+  temp[k] = '\0';
+
+  return temp;
+}
+
+
+
+char **pathparse() {
+  char *path = getenv("PATH");
+  char *ret, **retp = (char**) malloc(sizeof(char*)*200);
+
+  for(int a = 0; a != 200; a++) {
+    retp[a] = NULL;
+  }
+
+  int i, j = 0, prev = 0,k = 0;
+  for (i = 0; path[i] != 0; i++) {
+    ret = malloc(100 * sizeof(char));
+    if (path[i] == ':') {
+      for(j = 1; j < (i-prev); j++){
+          ret[j-1] = path[j+prev];
+      }
+      ret[j-1] = '/';
+      ret[j] = '\0';
+      retp[k] = ret;
+      k++;
+      prev = i;
+      }
+  }
+
+  return retp;
+}
+
+int main(int argc, char **argv, char **envp) {
+  char *line = (char*) malloc(80);
+  char *temp, *a = (char*)0;
+  size_t size = 80;
+  int ret, i, j, k, x = 0, output, file, fd;  
+  char **path = pathparse();
+
+  int status = 0;
+  char **arr = (char**) malloc(sizeof(char*)*80);
+
+  printf("Terminal: ");
+  while ((ret = getline(&line, &size, stdin)) != -1) {
+    output = 0;
+    if (ret < 0 && ret != -1) {
+      perror("getline");
+      return -1;
+    }
+
+    status = 0;
+
+    for (int i = 0; i < 10; i++) {
+      arr[i] = NULL;
+    }
+
+    for (i = 0; status == 0 && i < 10; i++) {
+      arr[i] = get_token(&line, &status);
+      if (arr[i] != NULL && arr[i][0] == '<') {
+        output = 1;
+        file = i+1;
+      } else if (arr[i] != NULL && arr[i][0] == '>') {
+        output = 2;
+        file = i+1;
+      }
+    }
+
+    if (status == 1 && i == 1) {
+      free(line);
+      printf("Terminal: ");
+      line = (char*) malloc(80);
+      continue;
+    }
+
+    if ((arr[0][0] == 'c' && arr[0][1] == 'd') || (arr[0][0] == 'c' && arr[0][1] == 'D') || (arr[0][0] == 'C' && arr[0][1] == 'd') || (arr[0][0] == 'C' && arr[0][1] == 'D')) {
+      if ((ret = chdir(arr[1])) < 0) {
+        perror("chdir");
+        return -1;
+      }
+      i = 0;
+      while (arr[i]) {
+        free(arr[i]);
+        i++;
+      }
+      free(line);
+      line = (char*) malloc(80);
+      printf("Terminal: ");
+      continue;
+    }
+
+    if (status == 1 && i == 1) {
+      free(line);
+      printf("Terminal: ");
+      line = (char*) malloc(80);
+      continue;
+    }
+
+    if ((ret = fork()) < 0) {
+      perror("fork");
+      _exit(1);
+    }
+
+    if (ret != 0) {
+      wait(0);
+    } else {
+      if (output == 1) {
+        close(0);
+        fd = open(arr[file], O_RDONLY);
+        if (ret < 0) {
+          perror("open");
+        }
+      }
+      else if (output == 2) {
+        close(1);
+        fd = open(arr[file], O_WRONLY);
+        if (ret < 0) {
+          perror("open");
+        }
+        for (int v = file - 1; v < 10; v++) {
+          free(arr[v]);
+          arr[v] = NULL;
+        }
+      }
+      for(int b = 0; path[b] != NULL; b++){
+        temp = concat(path[b], arr[0]);
+        ret = execve(temp, arr, envp);
+      }
+    }
+    i = 0;
+    while (arr[i]) {
+      free(arr[i]);
+      i++;
+    }
+    free(line);
+    line = (char*) malloc(80);
+    if (output == 1 || output == 2) {
+      close(fd);
+    }
+    printf("Terminal: ");
+  }
+  wait(NULL);
+
+  for(int a = 0; path[a] != NULL; a++) {
+    free(path[a]);
+  }
+  free(path);
+  return 0;
+}
